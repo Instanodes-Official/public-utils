@@ -280,7 +280,8 @@ if [[ -z "${LATEST_HEIGHT}" || "${LATEST_HEIGHT}" == "null" ]]; then
     die "Failed to parse latest block height from RPC status."
 fi
 
-TRUST_HEIGHT=$((LATEST_HEIGHT - 100))
+# Calculate Trust Height with 1000 block offset
+TRUST_HEIGHT=$((LATEST_HEIGHT - 1000))
 BLOCK_JSON=$(curl -s --max-time 10 "${STATE_SYNC_RPC}/block?height=${TRUST_HEIGHT}")
 TRUST_HASH=$(echo "${BLOCK_JSON}" | jq -r '.result.block_id.hash // .block_id.hash')
 
@@ -290,7 +291,8 @@ log "State Sync Parameters -> Trust Height: ${TRUST_HEIGHT} | Trust Hash: ${TRUS
 chown -R "${AUTHEO_USER}:${AUTHEO_GROUP}" "${AUTHEO_HOME}"
 chmod -R 755 "${AUTHEO_HOME}"
 
-log "Resetting database for State Sync initialization..."
+log "Cleaning light client database and resetting database for State Sync initialization..."
+rm -rf "${AUTHEO_HOME}/data/light-client*"
 su -s /bin/bash "${AUTHEO_USER}" -c "${AUTHEO_BINARY} comet unsafe-reset-all --home '${AUTHEO_HOME}' --keep-addr-book"
 
 log "Writing State Sync & Persistent Peers to config.toml..."
@@ -314,8 +316,8 @@ text = path.read_text()
 # Inject Persistent Peers
 text = re.sub(r'(?m)^\s*persistent_peers\s*=\s*".*"\s*$', f'persistent_peers = "{peers}"', text, count=1)
 
-# Enable State Sync
-text = re.sub(r'(?m)^\s*enable\s*=\s*false\s*$', 'enable = true', text, count=1)
+# Enable State Sync with duplicated dual-RPC configuration for single RPC endpoints
+text = re.sub(r'(?m)^\s*enable\s*=\s*(false|true)\s*$', 'enable = true', text, count=1)
 text = re.sub(r'(?m)^\s*rpc_servers\s*=\s*".*"\s*$', f'rpc_servers = "{rpc},{rpc}"', text, count=1)
 text = re.sub(r'(?m)^\s*trust_height\s*=\s*.*$', f'trust_height = {height}', text, count=1)
 text = re.sub(r'(?m)^\s*trust_hash\s*=\s*".*"\s*$', f'trust_hash = "{hash_val}"', text, count=1)
