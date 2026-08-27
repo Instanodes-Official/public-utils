@@ -31,19 +31,17 @@ RESTRICTED_INCOMING_RULES=(
 
 # Incoming rules to remove from UFW on every normal script run.
 remove_INCOMING_RULES=(
-    # "21/tcp"
-    # "20/tcp"
-    # "39000:40000/tcp"
-    # "30636/tcp"
-    # "888/tcp"
+   "8545/tcp"
+   "26657/tcp"
+   "888/tcp"
 )
 
 # Services exposed publicly.
 PUBLIC_INCOMING_RULES=(
     "80/tcp"                  # HTTP
     "443/tcp"                 # HTTPS
-    "888/tcp"  
-    "26657/tcp"               # Tendermint RPC
+    # "8545/tcp"  
+    # "26657/tcp"               # Tendermint RPC
 )
 
 # Trusted IP addresses and networks allowed to access restricted ports.
