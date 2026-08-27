@@ -23,12 +23,10 @@ set -Eeuo pipefail
 # Configuration
 # ------------------------------------------------------------
 
-SSH_PORT=22
-
 # Ports allowed only from trusted IPs and networks.
 RESTRICTED_INCOMING_RULES=(
     "22/tcp"                  # SSH
-    "26657/tcp"
+    "26657/tcp"               # Tendermint RPC
 )
 
 # Incoming rules to remove from UFW on every normal script run.
@@ -50,41 +48,27 @@ PUBLIC_INCOMING_RULES=(
 # Trusted IP addresses and networks allowed to access restricted ports.
 TRUSTED_CIDRS=(
     "14.99.117.194/32"
-    # "112.196.119.52/30"
+    "125.21.216.158/32"
     # "112.196.25.234/32"
-    # "112.196.81.250/31"
-    # "112.196.81.252/30"
-    # "125.21.216.158/32"
-    # "14.99.117.194/32"
-    # "14.99.238.250/31"
-    # "14.99.238.252/30"
-    # "182.73.190.216/30"
-    # "182.79.97.105/32"
-    # "182.79.97.106/31"
-    # "182.79.97.108/31"
+
+)
+
+# Trusted IPs allowed to access all incoming ports.
+# Do not add these IPs to TRUSTED_CIDRS as well.
+TRUSTED_ALL_CIDRS=(
+    "125.21.216.158/32"
 )
 
 # Previously configured trusted networks that should no longer have rules.
 REMOVE_TRUSTED_CIDRS=(
-    "112.196.119.50/31"
-    "112.196.119.52/30"
-    "112.196.25.234/32"
-    "112.196.81.250/31"
-    "112.196.81.252/30"
-    "125.21.216.158/32"
-    "14.99.238.250/31"
-    "14.99.238.252/30"
-    "182.73.190.216/30"
-    "182.79.97.105/32"
-    "182.79.97.106/31"
-    "182.79.97.108/31"
+    # "112.196.119.50/31"
 )
 
 # Wazuh agent -> manager traffic. These rules allow outbound traffic only.
-OUTGOING_RULES=(
-    "1514/tcp|Wazuh agent -> manager"
-    "55000/tcp|Wazuh API"
-)
+# OUTGOING_RULES=(
+#     "1514/tcp|Wazuh agent -> manager"
+#     "55000/tcp|Wazuh API"
+# )
 
 LOG_FILE="/var/log/ufw-firewall-setup.log"
 
@@ -178,25 +162,6 @@ echo "[4/8] Installing UFW..."
 # apt-get install -y ufw
 
 # ------------------------------------------------------------
-# Use the configured SSH port
-# ------------------------------------------------------------
-
-echo
-echo "[5/8] Using configured SSH port..."
-echo "SSH port: ${SSH_PORT}"
-
-# ------------------------------------------------------------
-# Validate SSH port
-# ------------------------------------------------------------
-
-if ! [[ "$SSH_PORT" =~ ^[0-9]+$ ]] ||
-   (( SSH_PORT < 1 || SSH_PORT > 65535 )); then
-
-    echo "ERROR: Invalid SSH port: $SSH_PORT"
-    exit 1
-fi
-
-# ------------------------------------------------------------
 # IMPORTANT SAFETY RULE
 #
 # Allow SSH BEFORE enabling UFW.
@@ -229,6 +194,25 @@ for CIDR in "${REMOVE_TRUSTED_CIDRS[@]}"; do
     done
 
     ufw delete allow from "$CIDR" >/dev/null 2>&1 || true
+done
+
+echo "Removing broad trusted rules for active IPs..."
+
+for CIDR in "${TRUSTED_CIDRS[@]}"; do
+    ufw delete allow from "$CIDR" >/dev/null 2>&1 || true
+done
+
+echo "Removing old all-port rules for configured IPs..."
+
+for CIDR in "${TRUSTED_ALL_CIDRS[@]}"; do
+    ufw delete allow from "$CIDR" >/dev/null 2>&1 || true
+done
+
+echo "Allowing all incoming ports for configured IPs..."
+
+for CIDR in "${TRUSTED_ALL_CIDRS[@]}"; do
+    echo "  ALLOW ALL -> $CIDR"
+    ufw allow from "$CIDR" comment "Trusted all ports"
 done
 
 echo "Allowing restricted ports only from trusted IPs and networks..."
@@ -264,15 +248,15 @@ ufw default allow outgoing
 # Configure managed outbound rules
 # ------------------------------------------------------------
 
-echo
-echo "Allowing configured outbound services..."
-
-for RULE in "${OUTGOING_RULES[@]}"; do
-    PORT="${RULE%%|*}"
-    COMMENT="${RULE#*|}"
-    echo "  ALLOW OUT -> $PORT ($COMMENT)"
-    ufw allow out "$PORT" comment "$COMMENT"
-done
+# echo
+# echo "Allowing configured outbound services..."
+#
+# for RULE in "${OUTGOING_RULES[@]}"; do
+#     PORT="${RULE%%|*}"
+#     COMMENT="${RULE#*|}"
+#     echo "  ALLOW OUT -> $PORT ($COMMENT)"
+#     ufw allow out "$PORT" comment "$COMMENT"
+# done
 
 # ------------------------------------------------------------
 # Display rules BEFORE enabling
@@ -342,11 +326,10 @@ echo "============================================================"
 echo
 echo "Incoming traffic : DENY by default"
 echo "Outgoing traffic : ALLOW by default"
-echo "SSH port         : ${SSH_PORT}/tcp"
 echo "Restricted ports : ${#RESTRICTED_INCOMING_RULES[@]}"
 echo "Public ports     : ${#PUBLIC_INCOMING_RULES[@]}"
 echo "Trusted networks: ${#TRUSTED_CIDRS[@]}"
-echo "Outbound rules   : ${#OUTGOING_RULES[@]}"
+# echo "Outbound rules   : ${#OUTGOING_RULES[@]}"
 echo
 echo "Log file:"
 echo "  $LOG_FILE"
