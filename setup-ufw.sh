@@ -26,23 +26,24 @@ set -Eeuo pipefail
 # Ports allowed only from trusted IPs and networks.
 RESTRICTED_INCOMING_RULES=(
     "22/tcp"                  # SSH
-    "26657/tcp"               # Tendermint RPC
+    # "26657/tcp"               # Tendermint RPC
 )
 
 # Incoming rules to remove from UFW on every normal script run.
 remove_INCOMING_RULES=(
-    "21/tcp"
-    "20/tcp"
-    "39000:40000/tcp"
-    "30636/tcp"
-    "888/tcp"
+    # "21/tcp"
+    # "20/tcp"
+    # "39000:40000/tcp"
+    # "30636/tcp"
+    # "888/tcp"
 )
 
 # Services exposed publicly.
 PUBLIC_INCOMING_RULES=(
     "80/tcp"                  # HTTP
     "443/tcp"                 # HTTPS
-    "888/tcp"                 # Panel
+    "888/tcp"  
+    "26657/tcp"               # Tendermint RPC
 )
 
 # Trusted IP addresses and networks allowed to access restricted ports.
@@ -57,6 +58,8 @@ TRUSTED_CIDRS=(
 # Do not add these IPs to TRUSTED_CIDRS as well.
 TRUSTED_ALL_CIDRS=(
     "125.21.216.158/32"
+    "14.99.117.194/32"
+    "112.196.81.250/32"
 )
 
 # Previously configured trusted networks that should no longer have rules.
