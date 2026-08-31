@@ -1,4 +1,4 @@
-
+```bash
 #!/bin/bash
 
 # ============================================================
@@ -7,14 +7,24 @@
 # Policy:
 #   Incoming traffic : DENY
 #   Outgoing traffic : ALLOW
-#   SSH               : ALLOW from trusted CIDRs only
+#
+# Public services:
+#   80/tcp  -> HTTP
+#   443/tcp -> HTTPS
+#
+# SSH:
+#   BLOCKED / NOT ALLOWED BY UFW
+#
+# Trusted IPs:
+#   TRUSTED_ALL_CIDRS can access all incoming ports.
 #
 # Run:
 #   sudo bash setup-ufw.sh
 #
 # IMPORTANT:
-#   Run this from an active SSH session.
-#   The script allows SSH BEFORE enabling UFW.
+#   If you are connected over SSH, make sure you have
+#   console/KVM/out-of-band access before running this script.
+#   This configuration intentionally removes SSH access.
 # ============================================================
 
 set -Eeuo pipefail
@@ -23,37 +33,44 @@ set -Eeuo pipefail
 # Configuration
 # ------------------------------------------------------------
 
-# Ports allowed only from trusted IPs and networks.
+# Restricted incoming ports.
+#
+# SSH is intentionally NOT configured here.
+#
 RESTRICTED_INCOMING_RULES=(
-    "22/tcp"                  # SSH
-    # "26657/tcp"               # Tendermint RPC
+    # "22/tcp"
+    # "26657/tcp"
 )
 
 # Incoming rules to remove from UFW on every normal script run.
-remove_INCOMING_RULES=(
-   "8545/tcp"
-   "26657/tcp"
-   "888/tcp"
+REMOVE_INCOMING_RULES=(
+    "22/tcp"
+    "8545/tcp"
+    "26657/tcp"
+    "888/tcp"
 )
 
 # Services exposed publicly.
 PUBLIC_INCOMING_RULES=(
     "80/tcp"                  # HTTP
     "443/tcp"                 # HTTPS
-    # "8545/tcp"  
-    # "26657/tcp"               # Tendermint RPC
 )
 
-# Trusted IP addresses and networks allowed to access restricted ports.
+# Trusted IP addresses and networks allowed to access
+# restricted ports.
+#
+# Currently empty because no restricted ports are configured.
+#
 TRUSTED_CIDRS=(
-    "14.99.117.194/32"
-    "125.21.216.158/32"
-    # "112.196.25.234/32"
-
+    # "14.99.117.194/32"
+    # "125.21.216.158/32"
 )
 
-# Trusted IPs allowed to access all incoming ports.
-# Do not add these IPs to TRUSTED_CIDRS as well.
+# Trusted IPs allowed to access ALL incoming ports.
+#
+# WARNING:
+# These IPs effectively bypass the normal incoming deny policy.
+#
 TRUSTED_ALL_CIDRS=(
     "125.21.216.158/32"
     "14.99.117.194/32"
@@ -61,22 +78,19 @@ TRUSTED_ALL_CIDRS=(
     "112.196.25.234/32"
 )
 
-# Previously configured trusted networks that should no longer have rules.
+# Previously configured trusted networks that should no longer
+# have rules.
 REMOVE_TRUSTED_CIDRS=(
     # "112.196.119.50/31"
 )
 
-# Wazuh agent -> manager traffic. These rules allow outbound traffic only.
-# OUTGOING_RULES=(
-#     "1514/tcp|Wazuh agent -> manager"
-#     "55000/tcp|Wazuh API"
-# )
-
-LOG_FILE="/var/log/ufw-firewall-setup.log"
-
 # ------------------------------------------------------------
 # Logging
 # ------------------------------------------------------------
+
+LOG_FILE="/var/log/ufw-firewall-setup.log"
+
+mkdir -p "$(dirname "$LOG_FILE")"
 
 exec > >(tee -a "$LOG_FILE") 2>&1
 
@@ -151,7 +165,6 @@ echo
 echo "[3/8] Upgrading installed packages..."
 
 # export DEBIAN_FRONTEND=noninteractive
-
 # apt-get upgrade -y
 
 # ------------------------------------------------------------
@@ -166,74 +179,226 @@ echo "[4/8] Installing UFW..."
 # ------------------------------------------------------------
 # IMPORTANT SAFETY RULE
 #
-# Allow SSH BEFORE enabling UFW.
-# This prevents accidental SSH lockout.
+# SSH is intentionally NOT allowed.
+#
+# This script removes:
+#
+#   OpenSSH                    ALLOW Anywhere
+#   OpenSSH (v6)               ALLOW Anywhere (v6)
+#   22/tcp                     ALLOW trusted IP
+#
+# Make sure you have console/KVM access before running.
 # ------------------------------------------------------------
 
 echo
-echo "Removing unrestricted restricted-port rules, if present..."
+echo "============================================================"
+echo " REMOVING UNWANTED UFW RULES"
+echo "============================================================"
 
-for RULE in "${RESTRICTED_INCOMING_RULES[@]}"; do
-    ufw delete allow "$RULE" >/dev/null 2>&1 || true
-done
+# ------------------------------------------------------------
+# Remove unrestricted OpenSSH application rules
+# ------------------------------------------------------------
 
+echo
+echo "Removing unrestricted SSH rules..."
+
+ufw delete allow OpenSSH >/dev/null 2>&1 || true
+ufw delete allow "OpenSSH (v6)" >/dev/null 2>&1 || true
+
+# ------------------------------------------------------------
+# Remove unrestricted Nginx Full application rules
+# ------------------------------------------------------------
+
+echo
+echo "Removing unrestricted Nginx Full rules..."
+
+ufw delete allow "Nginx Full" >/dev/null 2>&1 || true
+ufw delete allow "Nginx Full (v6)" >/dev/null 2>&1 || true
+
+# ------------------------------------------------------------
+# Remove unrestricted HTTP/HTTPS application profiles
+#
+# We manage 80/443 explicitly below.
+# ------------------------------------------------------------
+
+echo
+echo "Removing old Nginx HTTP/HTTPS application rules..."
+
+ufw delete allow "Nginx HTTP" >/dev/null 2>&1 || true
+ufw delete allow "Nginx HTTP (v6)" >/dev/null 2>&1 || true
+
+# ------------------------------------------------------------
+# Remove configured incoming rules
+# ------------------------------------------------------------
+
+echo
 echo "Removing configured incoming rules..."
 
-for RULE in "${remove_INCOMING_RULES[@]}"; do
+for RULE in "${REMOVE_INCOMING_RULES[@]}"; do
+
+    PORT="${RULE%/*}"
+    PROTO="${RULE#*/}"
+
     echo "  DELETE IN -> $RULE"
+
     ufw delete allow "$RULE" >/dev/null 2>&1 || true
+    ufw delete allow "$PORT/$PROTO" >/dev/null 2>&1 || true
+
 done
 
+# ------------------------------------------------------------
+# Remove previously configured trusted CIDRs
+# ------------------------------------------------------------
+
+echo
 echo "Removing previously configured trusted IP rules..."
 
 for CIDR in "${REMOVE_TRUSTED_CIDRS[@]}"; do
+
     echo "  DELETE TRUSTED -> $CIDR"
 
+    # Remove all-port rule
+    ufw delete allow from "$CIDR" >/dev/null 2>&1 || true
+
+    # Remove restricted-port rules
     for RULE in "${RESTRICTED_INCOMING_RULES[@]}"; do
+
         PORT="${RULE%/*}"
         PROTO="${RULE#*/}"
-        ufw delete allow from "$CIDR" to any port "$PORT" proto "$PROTO" >/dev/null 2>&1 || true
+
+        ufw delete allow \
+            from "$CIDR" \
+            to any \
+            port "$PORT" \
+            proto "$PROTO" \
+            >/dev/null 2>&1 || true
+
     done
 
-    ufw delete allow from "$CIDR" >/dev/null 2>&1 || true
 done
 
+# ------------------------------------------------------------
+# Remove broad trusted rules for active TRUSTED_CIDRS
+# ------------------------------------------------------------
+
+echo
 echo "Removing broad trusted rules for active IPs..."
 
 for CIDR in "${TRUSTED_CIDRS[@]}"; do
+
+    echo "  DELETE ALL -> $CIDR"
+
     ufw delete allow from "$CIDR" >/dev/null 2>&1 || true
+
 done
 
-echo "Removing old all-port rules for configured IPs..."
-
-for CIDR in "${TRUSTED_ALL_CIDRS[@]}"; do
-    ufw delete allow from "$CIDR" >/dev/null 2>&1 || true
-done
-
-echo "Allowing all incoming ports for configured IPs..."
-
-for CIDR in "${TRUSTED_ALL_CIDRS[@]}"; do
-    echo "  ALLOW ALL -> $CIDR"
-    ufw allow from "$CIDR" comment "Trusted all ports"
-done
-
-echo "Allowing restricted ports only from trusted IPs and networks..."
-
-for CIDR in "${TRUSTED_CIDRS[@]}"; do
-    for RULE in "${RESTRICTED_INCOMING_RULES[@]}"; do
-        PORT="${RULE%/*}"
-        PROTO="${RULE#*/}"
-        echo "  ALLOW $RULE -> $CIDR"
-        ufw allow from "$CIDR" to any port "$PORT" proto "$PROTO" comment "Trusted network"
-    done
-done
+# ------------------------------------------------------------
+# Remove old all-port rules for TRUSTED_ALL_CIDRS
+# ------------------------------------------------------------
 
 echo
-echo "Allowing configured public services..."
+echo "Removing old all-port rules for configured trusted IPs..."
+
+for CIDR in "${TRUSTED_ALL_CIDRS[@]}"; do
+
+    echo "  DELETE ALL -> $CIDR"
+
+    ufw delete allow from "$CIDR" >/dev/null 2>&1 || true
+
+done
+
+# ------------------------------------------------------------
+# Remove SSH trusted rules explicitly
+#
+# This guarantees that old rules like:
+#
+# 22/tcp ALLOW 14.99.117.194
+# 22/tcp ALLOW 125.21.216.158
+#
+# are removed even if SSH is no longer present in
+# RESTRICTED_INCOMING_RULES.
+# ------------------------------------------------------------
+
+echo
+echo "Removing ALL SSH trusted-IP rules..."
+
+SSH_PORT="22"
+SSH_PROTO="tcp"
+
+for CIDR in "${TRUSTED_CIDRS[@]}"; do
+
+    echo "  DELETE SSH -> $CIDR"
+
+    ufw delete allow \
+        from "$CIDR" \
+        to any \
+        port "$SSH_PORT" \
+        proto "$SSH_PROTO" \
+        >/dev/null 2>&1 || true
+
+done
+
+# ------------------------------------------------------------
+# Add trusted ALL rules
+# ------------------------------------------------------------
+
+echo
+echo "============================================================"
+echo " ADDING TRUSTED ALL-PORT RULES"
+echo "============================================================"
+
+for CIDR in "${TRUSTED_ALL_CIDRS[@]}"; do
+
+    echo "  ALLOW ALL -> $CIDR"
+
+    ufw allow from "$CIDR" comment "Trusted all ports"
+
+done
+
+# ------------------------------------------------------------
+# Add restricted ports
+# ------------------------------------------------------------
+
+echo
+echo "============================================================"
+echo " ADDING RESTRICTED PORT RULES"
+echo "============================================================"
+
+for CIDR in "${TRUSTED_CIDRS[@]}"; do
+
+    for RULE in "${RESTRICTED_INCOMING_RULES[@]}"; do
+
+        PORT="${RULE%/*}"
+        PROTO="${RULE#*/}"
+
+        echo "  ALLOW $RULE -> $CIDR"
+
+        ufw allow \
+            from "$CIDR" \
+            to any \
+            port "$PORT" \
+            proto "$PROTO" \
+            comment "Trusted network"
+
+    done
+
+done
+
+# ------------------------------------------------------------
+# Add public services
+# ------------------------------------------------------------
+
+echo
+echo "============================================================"
+echo " ADDING PUBLIC SERVICES"
+echo "============================================================"
 
 for RULE in "${PUBLIC_INCOMING_RULES[@]}"; do
+
     echo "  ALLOW PUBLIC -> $RULE"
+
     ufw allow "$RULE"
+
 done
 
 # ------------------------------------------------------------
@@ -241,24 +406,12 @@ done
 # ------------------------------------------------------------
 
 echo
-echo "Configuring default UFW policy..."
+echo "============================================================"
+echo " CONFIGURING DEFAULT POLICY"
+echo "============================================================"
 
 ufw default deny incoming
 ufw default allow outgoing
-
-# ------------------------------------------------------------
-# Configure managed outbound rules
-# ------------------------------------------------------------
-
-# echo
-# echo "Allowing configured outbound services..."
-#
-# for RULE in "${OUTGOING_RULES[@]}"; do
-#     PORT="${RULE%%|*}"
-#     COMMENT="${RULE#*|}"
-#     echo "  ALLOW OUT -> $PORT ($COMMENT)"
-#     ufw allow out "$PORT" comment "$COMMENT"
-# done
 
 # ------------------------------------------------------------
 # Display rules BEFORE enabling
@@ -270,6 +423,10 @@ echo " UFW RULES BEFORE ENABLE"
 echo "============================================================"
 
 ufw show added
+
+# ------------------------------------------------------------
+# Enable firewall
+# ------------------------------------------------------------
 
 echo
 echo "============================================================"
@@ -297,6 +454,10 @@ echo " FINAL UFW STATUS"
 echo "============================================================"
 
 ufw status verbose
+
+# ------------------------------------------------------------
+# Numbered rules
+# ------------------------------------------------------------
 
 echo
 echo "============================================================"
@@ -328,18 +489,34 @@ echo "============================================================"
 echo
 echo "Incoming traffic : DENY by default"
 echo "Outgoing traffic : ALLOW by default"
-echo "Restricted ports : ${#RESTRICTED_INCOMING_RULES[@]}"
-echo "Public ports     : ${#PUBLIC_INCOMING_RULES[@]}"
-echo "Trusted networks: ${#TRUSTED_CIDRS[@]}"
-# echo "Outbound rules   : ${#OUTGOING_RULES[@]}"
+echo "SSH               : BLOCKED"
+echo "HTTP              : PUBLIC"
+echo "HTTPS             : PUBLIC"
+echo "Restricted ports  : ${#RESTRICTED_INCOMING_RULES[@]}"
+echo "Public ports      : ${#PUBLIC_INCOMING_RULES[@]}"
+echo "Trusted networks  : ${#TRUSTED_CIDRS[@]}"
+echo "Trusted ALL IPs   : ${#TRUSTED_ALL_CIDRS[@]}"
 echo
 echo "Log file:"
 echo "  $LOG_FILE"
 echo
-echo "IMPORTANT:"
-echo "  Keep your current SSH session open."
-echo "  Open a SECOND SSH session and verify access before"
-echo "  closing this session."
+echo "============================================================"
+echo " IMPORTANT"
+echo "============================================================"
+echo
+echo "SSH (22/tcp) is intentionally NOT allowed."
+echo
+echo "The following rules have been removed:"
+echo "  - OpenSSH -> Anywhere"
+echo "  - OpenSSH (v6) -> Anywhere"
+echo "  - Nginx Full -> Anywhere"
+echo "  - Nginx Full (v6) -> Anywhere"
+echo "  - 22/tcp -> trusted SSH IPs"
+echo
+echo "Make sure console/KVM access is available before"
+echo "closing your current SSH session."
 echo
 echo "Completed: $(date)"
+echo
 echo "============================================================"
+```
