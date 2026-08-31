@@ -25,7 +25,7 @@ set -Eeuo pipefail
 
 # Ports allowed only from trusted IPs and networks.
 RESTRICTED_INCOMING_RULES=(
-    # "22/tcp"                  # SSH
+    "22/tcp"                  # SSH
     # "26657/tcp"               # Tendermint RPC
 )
 
