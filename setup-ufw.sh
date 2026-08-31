@@ -58,6 +58,7 @@ TRUSTED_ALL_CIDRS=(
     "125.21.216.158/32"
     "14.99.117.194/32"
     "112.196.81.250/32"
+    "112.196.25.234/32"
 )
 
 # Previously configured trusted networks that should no longer have rules.
