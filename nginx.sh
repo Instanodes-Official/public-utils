@@ -16,7 +16,7 @@ fi
 
 echo ""
 echo "[1/7] Updating package list..."
-apt-get update
+apt-get update -y
 
 echo ""
 echo "[2/7] Installing Nginx..."
