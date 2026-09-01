@@ -367,4 +367,4 @@ systemctl restart autheod.service
 sleep 2
 
 log "Service started successfully. Streaming live logs (Press Ctrl+C to stop viewing logs)..."
-journalctl -u autheod.service -f -o cat
+# journalctl -u autheod.service -f -o cat
