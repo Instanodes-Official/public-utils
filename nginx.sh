@@ -16,6 +16,8 @@ fi
 
 echo ""
 echo "[1/7] Updating package list..."
+export DEBIAN_FRONTEND=noninteractive
+
 apt-get update -y
 
 echo ""

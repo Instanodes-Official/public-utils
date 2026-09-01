@@ -118,7 +118,7 @@ AUTHEO_USER_LINK="${AUTHEO_USER_HOME}/.autheo"
 log "Installing required packages..."
 export DEBIAN_FRONTEND=noninteractive
 
-apt-get update
+apt-get update -y  &&
 apt-get install -y \
     ca-certificates \
     curl \
